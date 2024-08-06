@@ -1,0 +1,100 @@
+import platform
+import subprocess
+import requests
+import json
+from msal import ConfidentialClientApplication
+
+# Add servers/computers here
+servers = [
+    "Server1", "Server2", "Server3", "Server3",
+    "Server4",
+]
+
+# main function to ping devices
+def ping_server(server):
+    param = '-n' if platform.system().lower() == 'windows' else '-c'
+    command = ['ping', param, '4', server]
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return result.returncode == 0
+
+# List of down devices
+down_servers = []
+
+# Ping each server
+for server in servers:
+    if not ping_server(server):
+        down_servers.append(server)
+
+# If there are down servers, send an email alert
+# Add Azure App info here, then edit the mail_url with the senders email
+if down_servers:
+    client_id = ''
+    client_secret = ''
+    tenant_id = ''
+    scope = 'https://graph.microsoft.com/.default'
+    grant_type = 'client_credentials'
+    token_url = f'https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token'
+    mail_url = 'https://graph.microsoft.com/v1.0/users/Username@outlook.com/sendMail'
+    
+    # Sender and receiver, can also just add them into the JSON in place of variables 
+    sender_email = ""
+    recipient_email = ""
+
+    # Create a confidential client application
+    app = ConfidentialClientApplication(
+        client_id,
+        authority=f"https://login.microsoftonline.com/{tenant_id}",
+        client_credential=client_secret
+    )
+
+    # Get access token
+    result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
+    if "access_token" in result:
+        access_token = result["access_token"]
+
+        # Construct the email
+        email = {
+            "message": {
+                "subject": "Server Down Alert",
+                "body": {
+                    "contentType": "Text",
+                    "content": "The following servers are down:\n\n" + "\n".join(down_servers)
+                },
+                "from": {
+                    "emailAddress": {
+                        "address": sender_email
+                    }
+                },
+                "toRecipients": [
+                    {
+                        "emailAddress": {
+                            "address": recipient_email
+                        }
+                    },
+                    {
+                        "emailAddress": {
+                            "address": "additional email address here"
+                        }
+                    }
+                ]
+            }
+        }
+
+        # Define headers
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        # Send the email
+        response = requests.post(
+            f"https://graph.microsoft.com/v1.0/users/{sender_email}/sendMail",
+            headers=headers,
+            data=json.dumps(email)
+        )
+
+        if response.status_code == 202:
+            print("Email sent successfully.")
+        else:
+            print(f"Failed to send email: {response.status_code}")
+            print(response.json())
